@@ -2,60 +2,14 @@ const mongoose = require('mongoose');
 const supertest = require('supertest');
 const app = require('../app');
 const api = supertest(app);
+const helper = require('./test_helper');
 const Blog = require('../models/blog');
-const initialBlogs = [
-  {
-    title: 'React patterns',
-    author: 'Michael Chan',
-    url: 'https://reactpatterns.com/',
-    likes: 7,
-  },
-  {
-    title: 'Go To Statement Considered Harmful',
-    author: 'Edsger W. Dijkstra',
-    url: 'http://www.u.arizona.edu/~rubinson/copyright_violations/Go_To_Considered_Harmful.html',
-    likes: 5,
-  },
-  {
-    title: 'Canonical string reduction',
-    author: 'Edsger W. Dijkstra',
-    url: 'http://www.cs.utexas.edu/~EWD/transcriptions/EWD08xx/EWD808.html',
-    likes: 12,
-  },
-  {
-    title: 'First class tests',
-    author: 'Robert C. Martin',
-    url: 'http://blog.cleancoder.com/uncle-bob/2017/05/05/TestDefinitions.htmll',
-    likes: 10,
-  },
-  {
-    title: 'TDD harms architecture',
-    author: 'Robert C. Martin',
-    url: 'http://blog.cleancoder.com/uncle-bob/2017/03/03/TDD-Harms-Architecture.html',
-    likes: 0,
-  },
-  {
-    title: 'Type wars',
-    author: 'Robert C. Martin',
-    url: 'http://blog.cleancoder.com/uncle-bob/2016/05/01/TypeWars.html',
-    likes: 2,
-  },
-];
 
 beforeEach(async () => {
   await Blog.deleteMany({});
-  let blogObject = new Blog(initialBlogs[0]);
-  await blogObject.save();
-  blogObject = new Blog(initialBlogs[1]);
-  await blogObject.save();
-  blogObject = new Blog(initialBlogs[2]);
-  await blogObject.save();
-  blogObject = new Blog(initialBlogs[3]);
-  await blogObject.save();
-  blogObject = new Blog(initialBlogs[4]);
-  await blogObject.save();
-  blogObject = new Blog(initialBlogs[5]);
-  await blogObject.save();
+  const blogObjects = helper.initialBlogs.map((blog) => new Blog(blog));
+  const promiseArray = blogObjects.map((blog) => blog.save());
+  await Promise.all(promiseArray);
 });
 
 test('blogs are returned as json', async () => {
@@ -65,10 +19,10 @@ test('blogs are returned as json', async () => {
     .expect('Content-Type', /application\/json/);
 }, 100000);
 
-test('there are 5 blogs', async () => {
+test('all blogs are returned', async () => {
   const response = await api.get('/api/blogs');
 
-  expect(response.body).toHaveLength(initialBlogs.length);
+  expect(response.body).toHaveLength(helper.initialBlogs.length);
 });
 
 test('the first blog is about react patterns', async () => {
@@ -99,9 +53,11 @@ test('a valid blog can be added', async () => {
     .expect(201)
     .expect('Content-Type', /application\/json/);
 
-  const response = await api.get('/api/blogs');
-  const titles = response.body.map((r) => r.title);
-  expect(response.body).toHaveLength(initialBlogs.length + 1);
+  const blogsAtEnd = await helper.blogsInDb();
+  expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length + 1);
+
+  const titles = blogsAtEnd.map((r) => r.title);
+
   expect(titles).toContain(newBlog.title);
 });
 
@@ -113,9 +69,8 @@ test('blog without title is not added', async () => {
   };
   await api.post('/api/blogs').send(newBlog).expect(400);
 
-  const response = await api.get('/api/blogs');
-
-  expect(response.body).toHaveLength(initialBlogs.length);
+  const blogsAtEnd = await helper.blogsInDb();
+  expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length);
 });
 
 test('blog without url is not added', async () => {
@@ -126,9 +81,9 @@ test('blog without url is not added', async () => {
   };
   await api.post('/api/blogs').send(newBlog).expect(400);
 
-  const response = await api.get('/api/blogs');
+  const blogsAtEnd = await helper.blogsInDb();
 
-  expect(response.body).toHaveLength(initialBlogs.length);
+  expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length);
 });
 
 test('blog without likes defaults to 0', async () => {
@@ -143,10 +98,49 @@ test('blog without likes defaults to 0', async () => {
     .expect(201)
     .expect('Content-Type', /application\/json/);
 
-  const response = await api.get('/api/blogs');
-  const blog = response.body[6];
+  const blogsAtEnd = await helper.blogsInDb();
+  const blog = blogsAtEnd[6];
 
   expect(blog.likes).toBe(0);
+});
+
+test('a specific blog can be viewed', async () => {
+  const blogsAtStart = await helper.blogsInDb();
+
+  const blogToView = blogsAtStart[0];
+
+  const resultBlog = await api
+    .get(`/api/blogs/${blogToView.id}`)
+    .expect(200)
+    .expect('Content-Type', /application\/json/);
+
+  const processedBlogToView = JSON.parse(JSON.stringify(blogToView));
+
+  expect(resultBlog.body).toEqual(processedBlogToView);
+});
+
+test('a blog can be deleted', async () => {
+  const blogsAtStart = await helper.blogsInDb();
+  const blogToDelete = blogsAtStart[0];
+
+  await api.delete(`/api/blogs/${blogToDelete.id}`).expect(204);
+
+  const blogsAtEnd = await helper.blogsInDb();
+
+  expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length - 1);
+
+  const titles = blogsAtEnd.map((r) => r.title);
+
+  expect(titles).not.toContain(blogToDelete.content);
+});
+
+test('a blog can be updated, specifically likes', async () => {
+  const blogsAtStart = await helper.blogsInDb();
+  const blogToUpdate = blogsAtStart[0];
+
+  const newBlog = { ...blogToUpdate, likes: blogToUpdate.likes + 1 };
+
+  const updatedBlog = await api.put(`/api/blogs/${blogToUpdate.id}`, newBlog).expect(200);
 });
 
 afterAll(() => {
