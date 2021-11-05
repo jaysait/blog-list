@@ -4,12 +4,20 @@ const app = require('../app');
 const api = supertest(app);
 const helper = require('./test_helper');
 const Blog = require('../models/blog');
-
+const User = require('../models/user');
+const bcrypt = require('bcrypt');
 beforeEach(async () => {
   await Blog.deleteMany({});
   const blogObjects = helper.initialBlogs.map((blog) => new Blog(blog));
   const promiseArray = blogObjects.map((blog) => blog.save());
   await Promise.all(promiseArray);
+
+  await User.deleteMany({});
+
+  const passwordHash = await bcrypt.hash('sekret', 10);
+  const user = new User({ username: 'root', passwordHash });
+
+  await user.save();
 });
 
 test('blogs are returned as json', async () => {
@@ -47,9 +55,16 @@ test('a valid blog can be added', async () => {
     url: 'www.testurl.ca',
     likes: 0,
   };
+  const login = {
+    username: 'root',
+    password: 'sekret',
+  };
+  const token = await api.post('/api/login').send(login);
   await api
     .post('/api/blogs')
     .send(newBlog)
+    .set('Accept', 'application/json')
+    .set('Authorization', 'bearer ' + token.body.token)
     .expect(201)
     .expect('Content-Type', /application\/json/);
 
@@ -67,7 +82,17 @@ test('blog without title is not added', async () => {
     url: 'www.testurl.ca',
     likes: 0,
   };
-  await api.post('/api/blogs').send(newBlog).expect(400);
+  const login = {
+    username: 'root',
+    password: 'sekret',
+  };
+  const token = await api.post('/api/login').send(login);
+  await api
+    .post('/api/blogs')
+    .send(newBlog)
+    .set('Accept', 'application/json')
+    .set('Authorization', 'bearer ' + token.body.token)
+    .expect(400);
 
   const blogsAtEnd = await helper.blogsInDb();
   expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length);
@@ -79,7 +104,17 @@ test('blog without url is not added', async () => {
     author: 'Test Author',
     likes: 0,
   };
-  await api.post('/api/blogs').send(newBlog).expect(400);
+  const login = {
+    username: 'root',
+    password: 'sekret',
+  };
+  const token = await api.post('/api/login').send(login);
+  await api
+    .post('/api/blogs')
+    .send(newBlog)
+    .set('Accept', 'application/json')
+    .set('Authorization', 'bearer ' + token.body.token)
+    .expect(400);
 
   const blogsAtEnd = await helper.blogsInDb();
 
@@ -92,9 +127,16 @@ test('blog without likes defaults to 0', async () => {
     author: 'Test Author',
     url: 'www.testurl.ca',
   };
+  const login = {
+    username: 'root',
+    password: 'sekret',
+  };
+  const token = await api.post('/api/login').send(login);
   await api
     .post('/api/blogs')
     .send(newBlog)
+    .set('Accept', 'application/json')
+    .set('Authorization', 'bearer ' + token.body.token)
     .expect(201)
     .expect('Content-Type', /application\/json/);
 
