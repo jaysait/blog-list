@@ -6,18 +6,21 @@ const helper = require('./test_helper');
 const Blog = require('../models/blog');
 const User = require('../models/user');
 const bcrypt = require('bcrypt');
-beforeEach(async () => {
-  await Blog.deleteMany({});
-  const blogObjects = helper.initialBlogs.map((blog) => new Blog(blog));
-  const promiseArray = blogObjects.map((blog) => blog.save());
-  await Promise.all(promiseArray);
 
+beforeEach(async () => {
   await User.deleteMany({});
 
   const passwordHash = await bcrypt.hash('sekret', 10);
   const user = new User({ username: 'root', passwordHash });
 
-  await user.save();
+  const savedUser = await user.save();
+
+  await Blog.deleteMany({});
+  const blogObjects = helper.initialBlogs.map((blog) => {
+    return new Blog({ ...blog, user: savedUser.id });
+  });
+  const promiseArray = blogObjects.map((blog) => blog.save());
+  await Promise.all(promiseArray);
 });
 
 test('blogs are returned as json', async () => {
@@ -165,7 +168,17 @@ test('a blog can be deleted', async () => {
   const blogsAtStart = await helper.blogsInDb();
   const blogToDelete = blogsAtStart[0];
 
-  await api.delete(`/api/blogs/${blogToDelete.id}`).expect(204);
+  const login = {
+    username: 'root',
+    password: 'sekret',
+  };
+  const token = await api.post('/api/login').send(login);
+
+  await api
+    .delete(`/api/blogs/${blogToDelete.id}`)
+    .set('Accept', 'application/json')
+    .set('Authorization', 'bearer ' + token.body.token)
+    .expect(204);
 
   const blogsAtEnd = await helper.blogsInDb();
 
